@@ -1,0 +1,33 @@
+[package]
+name = "exp-wasm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.20.0", features = ["macros", "rt-multi-thread"] }
+
+axum = "0.5.13"
+tower = "0.4.13"
+tower-http = "0.3.4"
+futures-util = "0.3.21"
+wasi-common = "0.39.1"
+futures = "0.3.21"
+anyhow = "1.0.58"
+hyper = "0.14.20"
+axum-macros = "0.2.3"
+
+[dependencies.wasmtime]
+version = "0.39.1"
+
+[dependencies.wasmtime-wasi]
+version = "0.39.1"
+features = ['tokio', 'wasi-tokio']
+
+
+anyhow = "1.0.58"
+
+
+[workspace]
+members = ['payloads/simplest']
