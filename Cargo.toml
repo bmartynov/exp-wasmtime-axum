@@ -5,8 +5,11 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+
 [dependencies]
 tokio = { version = "1.20.0", features = ["macros", "rt-multi-thread"] }
+
+console-subscriber = "0.1.6"
 
 axum = "0.5.13"
 tower = "0.4.13"
@@ -17,6 +20,14 @@ futures = "0.3.21"
 anyhow = "1.0.58"
 hyper = "0.14.20"
 axum-macros = "0.2.3"
+
+wiggle = "0.39.1"
+tokio-stream = "0.1.9"
+
+
+[dependencies.tokio-util]
+version = "0.7.3"
+features = ['io']
 
 [dependencies.wasmtime]
 version = "0.39.1"

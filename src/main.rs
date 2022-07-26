@@ -1,30 +1,37 @@
 mod wasm;
+mod file;
+
+use std::io;
+use std::sync::Arc;
 
 use axum::{
     Router,
     Extension,
-    body::Body,
+    body::{
+        Body,
+        StreamBody,
+    },
     http::Request,
     extract::Path,
     routing::post,
-    response::{
-        IntoResponse,
-    },
+    response::IntoResponse,
 };
 
-use tower::Service;
+use tokio::sync::mpsc::channel;
 
-use axum_macros::debug_handler;
+use crate::file::{StdinStream, StdoutChan};
 
 #[tokio::main]
 async fn main() {
+    #[cfg(debug_assertions)]
+    console_subscriber::init();
+
     let wasm = wasm::Wasm::new().expect("maker");
-    let svc = wasm::WasmSvc::new(wasm);
 
     // build our application with a single route
     let app = Router::new().
         route("/run/:module", post(run_module)).
-        layer(Extension(svc));
+        layer(Extension(Arc::new(wasm)));
 
     // run it with hyper on localhost:3000
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
@@ -33,19 +40,26 @@ async fn main() {
         .unwrap();
 }
 
-
-#[debug_handler]
-async fn run_module(Path(module): Path<String>, Extension(mut wsvc): Extension<wasm::WasmSvc>, request: Request<Body>) -> impl IntoResponse {
+async fn run_module(
+    Extension(wsvc): Extension<Arc<wasm::Wasm>>,
+    Path(module): Path<String>,
+    request: Request<Body>,
+) -> impl IntoResponse {
     let (_, body) = request.into_parts();
 
-    // this wont work if the body is an long running stream
-    let bytes = hyper::body::to_bytes(body).
-        await.
-        expect("body");
+    let (stdout_tx, stdout_rx) = channel(10);
+    let err_tx = stdout_tx.clone();
 
-    let response = wsvc.call((module, bytes)).
-        await.
-        expect("response");
+    let stdin = StdinStream::new(body);
+    let stdout = StdoutChan::new(stdout_tx);
 
-    response
+    tokio::spawn(async move {
+        if let Err(err) = wsvc.run(module, Box::new(stdin), Box::new(stdout)).await {
+            err_tx.send(Err(io::Error::new(io::ErrorKind::Other, err))).await.expect("ok");
+        }
+    });
+
+    let stdout_stream = tokio_stream::wrappers::ReceiverStream::new(stdout_rx);
+
+    StreamBody::new(stdout_stream)
 }

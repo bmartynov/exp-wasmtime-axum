@@ -1,14 +1,10 @@
 use std::collections::HashMap;
-use std::convert::Infallible;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use anyhow::{anyhow, bail};
-use axum::body::Bytes;
-use tower::{MakeService, Service, service_fn};
-use wasi_common::pipe::{ReadPipe, WritePipe};
 
-use wasmtime::{Config, Engine, Module, Store, Linker, Instance, TypedFunc};
+use anyhow::anyhow;
+
+use wasmtime::{Config, Engine, Module, Store, Linker};
+
+use wasi_common::WasiFile;
 
 use wasmtime_wasi::{
     WasiCtx,
@@ -17,7 +13,6 @@ use wasmtime_wasi::{
         WasiCtxBuilder,
     },
 };
-
 
 const PAYLOAD_SIMPLEST: &[u8] = include_bytes!("../simplest.wasm");
 
@@ -55,16 +50,13 @@ impl Wasm {
         })
     }
 
-    pub async fn run(&self, module: String, payload: Bytes) -> anyhow::Result<Vec<u8>> {
-        let module = self.modules.get(&module).
-            ok_or(anyhow!("module not found: {}", module))?;
-
-        let stdin = ReadPipe::from(payload.as_ref());
-        let stdout = WritePipe::new_in_memory();
+    pub async fn run(&self, module: String, stdin: Box<dyn WasiFile>, stdout: Box<dyn WasiFile>) -> anyhow::Result<()> {
+        let module = self.modules.get(&module)
+            .ok_or(anyhow!("module not found: {}", module))?;
 
         let wasi = WasiCtxBuilder::new()
-            .stdout(Box::new(stdout.clone()))
-            .stdin(Box::new(stdin))
+            .stdout(stdout)
+            .stdin(stdin)
             .build();
 
         let mut store = Store::new(&self.engine, wasi);
@@ -80,46 +72,6 @@ impl Wasm {
             .call_async(&mut store, ())
             .await?;
 
-        // look at WritePipe.try_into_inner
-        drop(store);
-
-        let output: Vec<u8> = stdout
-            .try_into_inner()
-            .expect("")// TODO: replace with map_err
-            .into_inner();
-
-        Ok(output)
-    }
-}
-
-
-#[derive(Clone)]
-pub struct WasmSvc {
-    inner: Wasm,
-}
-
-impl WasmSvc {
-    pub fn new(inner: Wasm) -> Self {
-        Self {
-            inner,
-        }
-    }
-}
-
-impl Service<(String, Bytes)> for WasmSvc {
-    type Response = Vec<u8>;
-    type Error = anyhow::Error;
-    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, (module, payload): (String, Bytes)) -> Self::Future {
-        let inner = self.inner.clone();
-
-        Box::pin(async move {
-            inner.run(module, payload).await
-        })
+        Ok(())
     }
 }
